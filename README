@@ -1,0 +1,1 @@
+Initial prototype of a potential taxi scanner to scan and manage taxis falling within a location identified by latitude/longitude to be used/exposed through a server/client protocol.
