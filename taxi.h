@@ -18,8 +18,8 @@ struct taxi
     int id_len;
 };
 
-extern int add_taxi(double latitude, double longitude, unsigned char *id, int id_len);
-extern int del_taxi(unsigned char *id, int id_len);
+extern int add_taxi(struct taxi *taxi);
+extern int del_taxi(struct taxi *taxi);
 extern int find_taxis_by_location(double latitude, double longitude,
                                   struct taxi **matched_taxis, int *num_taxis);
 #ifdef __cplusplus

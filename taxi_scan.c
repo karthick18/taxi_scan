@@ -266,34 +266,39 @@ static int __del_taxi(struct taxi_location *taxi)
     return err;
 }
 
-int add_taxi(double latitude, double longitude, unsigned char *id, int id_len)
+int add_taxi(struct taxi *taxi)
 {
-    struct taxi_location *taxi = calloc(1, sizeof(*taxi));
-    int err;
-    assert(taxi);
-    taxi->latitude = latitude;
-    taxi->longitude = longitude;
-    taxi->id = calloc(1, id_len);
-    assert(taxi->id);
-    taxi->id_len = id_len;
-    memcpy(taxi->id, id, id_len);
-    if((err = __add_taxi(taxi))< 0)
+    struct taxi_location *taxi_location = NULL;
+    int err = -1;
+    if(!taxi) goto out;
+    taxi_location = calloc(1, sizeof(*taxi_location));
+    assert(taxi_location);
+    taxi_location->latitude = taxi->latitude;
+    taxi_location->longitude = taxi->longitude;
+    taxi_location->id = calloc(1, taxi->id_len);
+    assert(taxi_location->id);
+    taxi_location->id_len = taxi->id_len;
+    memcpy(taxi_location->id, taxi->id, taxi->id_len);
+    if((err = __add_taxi(taxi_location))< 0)
     {
-        free(taxi->id);
-        free(taxi); /* existing entry was updated*/
+        free(taxi_location->id);
+        free(taxi_location); /* existing entry was updated*/
     }
+    out:
     return err;
 }
 
-int del_taxi(unsigned char *id, int id_len)
+int del_taxi(struct taxi *taxi)
 {
-    int err = 0;
-    struct taxi_location taxi = {.latitude = 0, .longitude = 0, .id = id, .id_len = id_len };
-    err = __del_taxi(&taxi);
+    int err = -1;
+    if(!taxi) goto out;
+    struct taxi_location taxi_location = {.latitude = 0, .longitude = 0, .id = taxi->id, .id_len = taxi->id_len };
+    err = __del_taxi(&taxi_location);
     if(err < 0)
     {
-        output("Unable to delete taxi with id [%.*s]\n", id_len, id);
+        output("Unable to delete taxi with id [%.*s]\n", taxi->id_len, taxi->id);
     }
+    out:
     return err;
 }
 

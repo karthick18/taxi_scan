@@ -19,14 +19,14 @@ static int add_taxi_location(double latitude, double longitude, unsigned char *i
     taxis[num_taxis].id_len = len;
     memcpy(taxis[num_taxis].id, id, len);
     num_taxis++;
-    return add_taxi(latitude, longitude, id, len);
+    return add_taxi(&taxis[num_taxis-1]);
 }
 
 static int del_taxis(void)
 {
     for(int i = 0; i < num_taxis; ++i)
     {
-        int ret = del_taxi(taxis[i].id, taxis[i].id_len);
+        int ret = del_taxi(&taxis[i]);
         assert(ret == 0);
         printf("Taxi [%.*s] with latitude [%lg], longitude [%lg] deleted successfully\n", 
                taxis[i].id_len, taxis[i].id, taxis[i].latitude, taxis[i].longitude);
