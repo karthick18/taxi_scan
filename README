@@ -1,1 +1,1 @@
-Initial prototype of a potential taxi scanner to scan and manage taxis falling within a location identified by latitude/longitude to be used/exposed through a server/client protocol.
+Initial prototype of a potential taxi scanner/server to scan and manage taxis falling within a location identified by latitude/longitude to be used/exposed through a server/client protocol. taxi_test sample tests the implementation of the taxi server through a client that adds/deletes and finds nearest locations
