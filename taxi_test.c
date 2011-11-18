@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <getopt.h>
 #include "taxi.h"
 #include "taxi_client.h"
 
@@ -13,6 +14,15 @@
 
 static struct taxi *taxis;
 int num_taxis;
+static struct taxi_test_args
+{
+    char server[20];
+    int port;
+    int test_delete;
+    char fname[20];
+} taxi_test_args = { .server = _TAXI_SERVER_IP, .port = _TAXI_SERVER_PORT, 
+                     .test_delete = 0, .fname = TEST_FILE_NAME ,
+};
 
 static int add_taxi_location(double latitude, double longitude, unsigned char *id, int id_len)
 {
@@ -119,28 +129,64 @@ static int test_taxi_scan(const char *fname)
         find_taxis(search_taxis, num_searches);
         free(search_taxis);
     }
-    del_taxis();
+    if(taxi_test_args.test_delete)
+        del_taxis();
     return 0;
+}
+
+static char *prog;
+static void usage(void)
+{
+    fprintf(stderr, "%s [ -s | server ] [ -p | port ] [ -d | test deletion ] [ -h | this help ]\n",
+            prog);
+    exit(1);
 }
 
 int main(int argc, char **argv)
 {
-    char fname[40] = TEST_FILE_NAME;
-    if(argc > 1)
+    int c;
+    char *s;
+    prog = argv[0];
+    if( (s = strrchr(prog, '/') ) )
+        prog = s+1;
+
+    opterr = 0;
+    while ( (c = getopt(argc, argv, "s:p:dh") ) != EOF )
     {
-        fname[0] = 0;
-        strncat(fname, argv[1], sizeof(fname)-1);
+        switch(c)
+        {
+        case 's':
+            taxi_test_args.server[0] = 0;
+            strncat(taxi_test_args.server, optarg, sizeof(taxi_test_args.server)-1);
+            break;
+
+        case 'p':
+            taxi_test_args.port = atoi(optarg);
+            break;
+            
+        case 'd':
+            taxi_test_args.test_delete = 1;
+            break;
+
+        case 'h':
+        case '?':
+        default:
+            usage();
+        }
     }
-    char *taxi_server = _TAXI_SERVER_IP;
-    int taxi_server_port = _TAXI_SERVER_PORT;
-    if(argc > 2) taxi_server = argv[2];
-    if(argc > 3) taxi_server_port = atoi(argv[3]);
-    int err = taxi_client_initialize(taxi_server, taxi_server_port);
+
+    if(optind != argc)
+    {
+        taxi_test_args.fname[0] = 0;
+        strncat(taxi_test_args.fname, argv[optind], sizeof(taxi_test_args.fname)-1);
+    }
+
+    int err = taxi_client_initialize(taxi_test_args.server, taxi_test_args.port);
     if(err < 0)
     {
         output("Error initializing taxi client\n");
         return -1;
     }
-    test_taxi_scan(fname);
+    test_taxi_scan(taxi_test_args.fname);
     return 0;
 }

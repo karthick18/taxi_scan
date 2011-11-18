@@ -1,6 +1,9 @@
 #include "taxi_client.h"
 #include "taxi_utils.h"
 #include "taxi_pack.h"
+#include <poll.h>
+
+#define _TAXI_LIST_TIMEOUT (1000) /* 1 second response timeout from the server*/
 
 static int unpack_taxi_list(unsigned char *buf, int len, 
                             struct taxi **p_taxis, int *p_num_taxis)
@@ -56,6 +59,18 @@ static int send_taxi_fetch_cmd(double latitude, double longitude,
     assert(buf);
     struct sockaddr_in server_addr;
     socklen_t addrlen = sizeof(server_addr);
+    struct pollfd pollfds;
+    int status;
+    memset(&pollfds, 0, sizeof(pollfds));
+    pollfds.events = POLLIN | POLLRDNORM;
+    pollfds.fd = sd;
+    status = poll(&pollfds, 1, _TAXI_LIST_TIMEOUT);
+    if(status <= 0 || !(pollfds.revents & (POLLIN | POLLRDNORM)))
+    {
+        printf("Unable to receive response from server at [%s] for TAXI LIST COMMAND\n",
+               inet_ntoa(dest->sin_addr));
+        goto out_free;
+    }
     memset(&server_addr, 0, sizeof(server_addr));
     nbytes = recvfrom(sd, buf, len, 0, (struct sockaddr*)&server_addr, &addrlen);
     if(nbytes < 0)
