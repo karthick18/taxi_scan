@@ -207,6 +207,11 @@ int taxi_client_initialize(const char *ip, int port)
 {
     int sd;
     int err = -1;
+    if(client_initialized)
+    {
+        err = 0;
+        goto out;
+    }
     sd = bind_server(NULL, 0);
     if(sd < 0)
         goto out;
