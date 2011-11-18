@@ -3,8 +3,9 @@
 #include <string.h>
 #include <assert.h>
 #include "taxi.h"
+#include "taxi_client.h"
 
-#define TEST_FILE_NAME "/home/karthick/locations.txt"
+#define TEST_FILE_NAME "locations.txt"
 
 static struct taxi *taxis;
 int num_taxis;
@@ -19,14 +20,14 @@ static int add_taxi_location(double latitude, double longitude, unsigned char *i
     taxis[num_taxis].id_len = len;
     memcpy(taxis[num_taxis].id, id, len);
     num_taxis++;
-    return add_taxi(&taxis[num_taxis-1]);
+    return update_taxi_location(&taxis[num_taxis-1]);
 }
 
 static int del_taxis(void)
 {
     for(int i = 0; i < num_taxis; ++i)
     {
-        int ret = del_taxi(&taxis[i]);
+        int ret = delete_taxi(&taxis[i]);
         assert(ret == 0);
         printf("Taxi [%.*s] with latitude [%lg], longitude [%lg] deleted successfully\n", 
                taxis[i].id_len, taxis[i].id, taxis[i].latitude, taxis[i].longitude);
@@ -53,9 +54,9 @@ static int find_taxis(struct taxi *search_taxis, int num_searches)
     {
         struct taxi *taxis = NULL;
         int num_taxis = 0;
-        find_taxis_by_location(search_taxis[i].latitude,
-                               search_taxis[i].longitude,
-                               &taxis, &num_taxis);
+        get_nearest_taxis(search_taxis[i].latitude,
+                          search_taxis[i].longitude,
+                          &taxis, &num_taxis);
         printf("Matched [%d] taxis for query [%lg:%lg]\n", num_taxis,
                search_taxis[i].latitude, search_taxis[i].longitude);
         if(num_taxis > 0)
@@ -119,6 +120,12 @@ int main(int argc, char **argv)
     if(argc > 1)
     {
         strncat(fname, argv[1], sizeof(fname)-1);
+    }
+    int err = taxi_client_initialize(_TAXI_SERVER_IP, _TAXI_SERVER_PORT);
+    if(err < 0)
+    {
+        fprintf(stderr, "Error initializing taxi client\n");
+        return -1;
     }
     test_taxi_scan(fname);
     return 0;

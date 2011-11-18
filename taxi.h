@@ -5,9 +5,9 @@
 extern "C" {
 #endif
 
-#define TAXI_DISTANCE_BIAS (0.250)
-
 #define output(...) do { fprintf(stderr, __VA_ARGS__); } while(0)
+#define _TAXI_SERVER_PORT (20000)
+#define _TAXI_SERVER_IP   "localhost"
 
 struct taxi
 {
@@ -18,10 +18,6 @@ struct taxi
     int id_len;
 };
 
-extern int add_taxi(struct taxi *taxi);
-extern int del_taxi(struct taxi *taxi);
-extern int find_taxis_by_location(double latitude, double longitude,
-                                  struct taxi **matched_taxis, int *num_taxis);
 #ifdef __cplusplus
 }
 #endif

@@ -7,7 +7,7 @@
 #include <assert.h>
 #include <math.h>
 #include "rbtree.h"
-#include "taxi.h"
+#include "taxi_server.h"
 
 struct taxi_location
 {

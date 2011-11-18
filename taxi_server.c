@@ -1,55 +1,21 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <netdb.h>
 #include <errno.h>
 #include <unistd.h>
-#include <sys/wait.h>
-static void get_server_addr(const char *ip, struct sockaddr_in *addr)
+#include <assert.h>
+#include <getopt.h>
+#include "taxi_utils.h"
+#include "taxi_pack.h"
+#include "taxi_server.h"
+
+static struct server_args
 {
-    struct hostent *h = gethostbyname(ip);
-    if(!h)
-    {
-        addr->sin_addr.s_addr = inet_addr(ip);
-    }
-    else
-    {
-        memcpy(&addr->sin_addr, *h->h_addr_list, h->h_length);
-    }
-}
+    int port;
+    int verbose;
+} server_args = {.port = _TAXI_SERVER_PORT, .verbose = 0, };
 
-static int bind_server(const char *ip, int port)
-{
-    int sd, err = -1;
-    struct sockaddr_in addr;
-    sd = socket(PF_INET, SOCK_DGRAM, 0);
-    if(sd < 0)
-        goto out;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = PF_INET;
-    addr.sin_port = htons(port);
-    if(ip)
-        get_server_addr(ip, &addr);
-    else
-        addr.sin_addr.s_addr = INADDR_ANY;
-    if(bind(sd, (struct sockaddr*)&addr, sizeof(addr)) < 0)
-    {
-        perror("bind server error:");
-        goto out_close;
-    }
-
-    err = sd;
-    goto out;
-
-    out_close: 
-    close(sd);
-    out:
-    return err;
-}
-
-static void fetch_taxis(struct taxi *taxi_location, struct taxi **taxis, int *num_taxis)
+static void fetch_taxi_list(struct taxi *taxi_location, struct taxi **taxis, int *num_taxis)
 {
     find_taxis_by_location(taxi_location->latitude, taxi_location->longitude,
                            taxis, num_taxis);
@@ -58,24 +24,44 @@ static void fetch_taxis(struct taxi *taxi_location, struct taxi **taxis, int *nu
 /*
  * Pack and send back the taxi list for this location.
  */
-static int send_taxis(struct taxi *taxi, struct taxi *taxis, int num_taxis, int sd, 
-                      struct sockaddr_in *dest, socklen_t addrlen)
+static int send_taxi_list(struct taxi *taxi, struct taxi *taxis, int num_taxis, int sd, 
+                          struct sockaddr *dest, socklen_t addrlen)
 {
-#define _BUF_SPACE (1024)
     printf("Matched [%d] taxis for location [%lg:%lg]\n", num_taxis,
            taxi->latitude, taxi->longitude);
-    unsigned char *buf = calloc(1, _BUF_SPACE);
+    int len = 1024, err = -1;
+    unsigned char *buf = calloc(1, len);
     assert(buf);
     unsigned char *s = buf;
-    _CHECK_SPACE(sizeof(unsigned int)*2);
-    *(unsigned int *)s = _TAXI_LIST_CMD;
+    int offset = sizeof(unsigned int) * 2;
+    *(unsigned int *)s = htonl(_TAXI_LIST_CMD);
     s += sizeof(unsigned int);
-    *(unsigned int*)s = num_taxis;
+    *(unsigned int*)s = htonl(num_taxis);
+    unsigned char *taxis_marker = s;
     s += sizeof(unsigned int);
     if(num_taxis > 0)
     {
+        int max_taxis =  __MAX_PACKET_LEN/(sizeof(struct taxi)  + _TAXI_OVERHEAD);
+        if(num_taxis >= max_taxis) 
+        {
+            num_taxis = max_taxis;
+            *(unsigned int*)taxis_marker = htonl(num_taxis);
+        }
+        buf = taxis_pack_with_buf(taxis, num_taxis, &buf, &len, offset);
+        assert(buf);
+        len += offset;
+        int nbytes = sendto(sd, buf, len, 0, dest, addrlen);
+        if(nbytes != len)
+        {
+            printf("Couldn't send [%d] bytes to destination\n", len);
+            goto out_free;
+        }
     }
-    return 0;
+    err = 0;
+
+    out_free:
+    free(buf);
+    return err;
 }
 
 static int process_request(int sd, unsigned char *buf, int bytes, struct sockaddr_in *dest, socklen_t addrlen)
@@ -83,7 +69,7 @@ static int process_request(int sd, unsigned char *buf, int bytes, struct sockadd
     int err = -1;
     printf("Got [%d] bytes of data from dest [%s], port [%d]\n", 
            bytes, inet_ntoa(dest->sin_addr), ntohs(dest->sin_port));
-    unsigned char *s = (unsigned char *)buf;
+    unsigned char *s = buf;
     if(bytes < sizeof(unsigned int))
     {
         printf("Request too short\n");
@@ -97,7 +83,7 @@ static int process_request(int sd, unsigned char *buf, int bytes, struct sockadd
         err = 1;
         goto out;
     }
-    unsigned int cmd = *(unsigned int*)s;
+    unsigned int cmd = ntohl(*(unsigned int*)s);
     bytes -= sizeof(unsigned int);
     s += sizeof(unsigned int);
 
@@ -109,7 +95,7 @@ static int process_request(int sd, unsigned char *buf, int bytes, struct sockadd
     case _TAXI_LOCATION_CMD:
         {
             struct taxi taxi = {0};
-            err = taxi_unpack(s, bytes, &taxi);
+            err = taxi_unpack(s, &bytes, &taxi);
             if(err < 0)
             {
                 printf("Error unpacking taxi location data\n");
@@ -123,7 +109,7 @@ static int process_request(int sd, unsigned char *buf, int bytes, struct sockadd
         {
             
             struct taxi taxi = {0};
-            err = taxi_unpack(s, bytes, &taxi);
+            err = taxi_unpack(s, &bytes, &taxi);
             if(err < 0)
             {
                 printf("Error unpacking taxi delete command\n");
@@ -140,7 +126,7 @@ static int process_request(int sd, unsigned char *buf, int bytes, struct sockadd
     case _TAXI_FETCH_CMD:
         {
             struct taxi taxi = {0};
-            err = taxi_unpack(s, bytes, &taxi);
+            err = taxi_unpack(s, &bytes, &taxi);
             if(err < 0)
             {
                 printf("Error unpacking taxi fetch by location command\n");
@@ -148,8 +134,8 @@ static int process_request(int sd, unsigned char *buf, int bytes, struct sockadd
             }
             struct taxi *taxis = NULL;
             int num_taxis = 0;
-            fetch_taxis(&taxi, &taxis, &num_taxis);
-            send_taxis(&taxi, taxis, num_taxis, sd, dest, addrlen);
+            fetch_taxi_list(&taxi, &taxis, &num_taxis);
+            send_taxi_list(&taxi, taxis, num_taxis, sd, (struct sockaddr*)dest, addrlen);
             if(taxis) free(taxis);
             break;
         }
@@ -180,7 +166,7 @@ int taxi_server_start(const char *ip, int port)
             perror("recvfrom server error. exiting:");
             goto out_close;
         }
-        if(process_request(sd, buf, nbytes, &dest, addrlen) == 1)
+        if(process_request(sd, (unsigned char*)buf, nbytes, &dest, addrlen) == 1)
         {
             printf("Server exiting...\n");
             break;
@@ -194,71 +180,38 @@ int taxi_server_start(const char *ip, int port)
     return err;
 }
 
-static int taxi_client_send(const char *ip, int port)
+static char *prog;
+static void usage(void)
 {
-    int sd;
-    int err = -1;
-    struct sockaddr_in destaddr;
-    sd = bind_server(NULL, 0);
-    if(sd < 0)
-        goto out;
-    memset(&destaddr, 0, sizeof(destaddr));
-    destaddr.sin_port = htons(port);
-    destaddr.sin_family = PF_INET;
-    get_server_addr(ip, &destaddr);
-    for(int i = 0; i < 100; ++i)
-    {
-        char buf[40];
-        if(i != 99)
-            snprintf(buf, sizeof(buf), "hello:%d", i+1);
-        else snprintf(buf, sizeof(buf), "exit");
-        int nbytes;
-        retry:
-        nbytes = sendto(sd, buf, strlen(buf), 0, (struct sockaddr*)&destaddr, sizeof(destaddr));
-        if(nbytes < 0)
-        {
-            if(errno == EINTR)
-                goto retry;
-            perror("sendto server error:"); 
-            goto out_close;
-        }
-        else printf("Sent [%d] bytes successfully to [%s]\n", nbytes, inet_ntoa(destaddr.sin_addr));
-        if(i != 99)
-        {
-            struct sockaddr_in server_addr;
-            memset(&server_addr, 0, sizeof(server_addr));
-            socklen_t addrlen = sizeof(server_addr);
-            nbytes = recvfrom(sd, buf, sizeof(buf), 0, (struct sockaddr*)&server_addr, &addrlen);
-            if(nbytes > 0)
-                process_request("CLIENT", buf, nbytes, &server_addr);
-        }
-    }
-    err = 0;
-    out_close:
-    close(sd);
-    out:
-    return err;
+    fprintf(stderr, "%s [ -p | port ] [ -v | verbose ]\n", prog);
+    exit(1);
 }
 
 int main(int argc, char **argv)
 {
-    char *server = NULL;
-    char *client = "localhost";
-    int port = 20000;
-    if(argc > 1) client = argv[1];
-    if(argc > 2) port = atoi(argv[2]);
-    if(fork()==0)
+    int c;
+    opterr = 0;
+    prog = argv[0];
+    char *s;
+    if( (s = strrchr(prog, '/') ) )
+        prog = ++s;
+    while( (c = getopt(argc, argv, "p:vh") ) != EOF )
     {
-        taxi_server_start(server, port); 
-        exit(0);
+        switch(c)
+        {
+        case 'p':
+            server_args.port = atoi(optarg);
+            break;
+        case 'v':
+            server_args.verbose = 1;
+            break;
+        case 'h':
+        case '?':
+        default:
+            usage();
+        }
     }
-    sleep(1);
-    if(fork() == 0)
-    {
-        taxi_client_send(client, port);
-        exit(0);
-    }
-    while( waitpid(-1, NULL, 0) != -1 ); /* wait till all children exit*/
-    printf("done with the tests...\n");
+    if(optind != argc) usage();
+    taxi_server_start(NULL, server_args.port);
     return 0;
 }
