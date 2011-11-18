@@ -128,9 +128,14 @@ int main(int argc, char **argv)
     char fname[40] = TEST_FILE_NAME;
     if(argc > 1)
     {
+        fname[0] = 0;
         strncat(fname, argv[1], sizeof(fname)-1);
     }
-    int err = taxi_client_initialize(_TAXI_SERVER_IP, _TAXI_SERVER_PORT);
+    char *taxi_server = _TAXI_SERVER_IP;
+    int taxi_server_port = _TAXI_SERVER_PORT;
+    if(argc > 2) taxi_server = argv[2];
+    if(argc > 3) taxi_server_port = atoi(argv[3]);
+    int err = taxi_client_initialize(taxi_server, taxi_server_port);
     if(err < 0)
     {
         output("Error initializing taxi client\n");
