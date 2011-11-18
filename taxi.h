@@ -11,7 +11,7 @@ extern "C" {
 
 struct taxi
 {
-#define MAX_ID_LEN (20)
+#define MAX_ID_LEN 20
     double latitude;
     double longitude;
     unsigned char id[MAX_ID_LEN];

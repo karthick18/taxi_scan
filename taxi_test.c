@@ -5,6 +5,10 @@
 #include "taxi.h"
 #include "taxi_client.h"
 
+#define _XSTR(X) #X
+#define _STR(X) _XSTR(X)
+#define ID_WIDTH _STR(MAX_ID_LEN)
+
 #define TEST_FILE_NAME "locations.txt"
 
 static struct taxi *taxis;
@@ -72,18 +76,23 @@ static int test_taxi_scan(const char *fname)
 {
     FILE *fptr;
     fptr = fopen(fname, "r");
+    if(!fptr) 
+    {
+        output("Unable to open file [%s]\n", fname);
+        return -1;
+    }
     char buf[0xff+1];
     struct taxi *search_taxis = NULL;
     int num_searches = 0;
     while(fgets(buf, sizeof(buf), fptr) != NULL)
     {
         double latitude = 0, longitude = 0;
-        unsigned char *id;
+        unsigned char id[MAX_ID_LEN+1];
         int ret;
-        ret = sscanf(buf, "%lg,%lg,%ms\n", &latitude, &longitude, (char**)&id);
+        ret = sscanf(buf, "%lg,%lg,%"ID_WIDTH"s\n", &latitude, &longitude, id);
         if(ret != 2 && ret != 3)
         {
-            printf("sscanf error\n");
+            output("sscanf error\n");
             continue;
         }
         /*
@@ -100,8 +109,8 @@ static int test_taxi_scan(const char *fname)
         }
         else
         {
+            id[MAX_ID_LEN] = 0;
             add_taxi_location(latitude, longitude, id, strlen((const char*)id));
-            free(id);
         }
     }
     fclose(fptr);
@@ -124,7 +133,7 @@ int main(int argc, char **argv)
     int err = taxi_client_initialize(_TAXI_SERVER_IP, _TAXI_SERVER_PORT);
     if(err < 0)
     {
-        fprintf(stderr, "Error initializing taxi client\n");
+        output("Error initializing taxi client\n");
         return -1;
     }
     test_taxi_scan(fname);
