@@ -3,7 +3,7 @@
 #include "taxi_pack.h"
 #include <poll.h>
 
-#define _TAXI_LIST_TIMEOUT (1000) /* 1 second response timeout from the server*/
+#define _TAXI_LIST_TIMEOUT (2000) /* 1 second response timeout from the server*/
 
 static int unpack_taxi_list(unsigned char *buf, int len, 
                             struct taxi **p_taxis, int *p_num_taxis)
