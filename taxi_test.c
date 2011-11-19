@@ -76,6 +76,13 @@ static int find_taxis(struct taxi *search_taxis, int num_searches)
         if(num_taxis > 0)
         {
             display_taxis(taxis, num_taxis);
+            if(taxi_test_args.test_delete && num_taxis >= 2)
+            {
+                printf("Re-running the query with deletion of id [%.*s]\n",
+                       taxis[0].id_len, taxis[0].id);
+                delete_taxi(&taxis[0]);
+                i--;
+            }
             free(taxis);
         }
     }
@@ -102,7 +109,6 @@ static int test_taxi_scan(const char *fname)
         ret = sscanf(buf, "%lg,%lg,%"ID_WIDTH"s\n", &latitude, &longitude, id);
         if(ret != 2 && ret != 3)
         {
-            output("sscanf error\n");
             continue;
         }
         /*
