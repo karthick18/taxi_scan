@@ -40,7 +40,7 @@ static int send_taxi_list(struct taxi *taxi, struct taxi *taxis, int num_taxis, 
     unsigned char *taxis_marker = s;
     s += sizeof(unsigned int);
     int max_taxis =  __MAX_PACKET_LEN/(sizeof(struct taxi)  + _TAXI_OVERHEAD);
-    if(num_taxis >= max_taxis) 
+    if(num_taxis > max_taxis) 
     {
         num_taxis = max_taxis;
         *(unsigned int*)taxis_marker = htonl(num_taxis);
