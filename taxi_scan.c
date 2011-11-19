@@ -17,7 +17,6 @@ struct taxi_location
     int id_len;
     struct taxi_location **taxi_near_locations;
     int num_taxis;
-    int location_index;
     struct taxi_location *taxi_parent;
     struct rbtree map;
     struct rbtree id_map; 
@@ -40,7 +39,12 @@ static int taxi_near_locations_cmp(const void *a, const void *b)
     if(l1->latitude > l2->latitude) return 1;
     if(l1->longitude < l2->longitude) return -1;
     if(l1->longitude > l2->longitude) return 1;
-    return 0;
+    /*
+     * Compare against ids now
+     */
+    if(l1->id_len < l2->id_len) return -1;
+    if(l1->id_len > l2->id_len) return 1;
+    return memcmp(l1->id, l2->id, l1->id_len);
 }
 
 static int __add_taxi_by_location(struct taxi_location *taxi)
@@ -78,8 +82,10 @@ static int __add_taxi_by_location(struct taxi_location *taxi)
     taxi->num_taxis = 0;
 
     add_near_location:
+    output("Adding %s taxi [%.*s] with parent [%.*s]\n", taxi_parent == taxi ? "new":"child",
+           taxi->id_len, taxi->id,
+           taxi_parent->id_len, taxi_parent->id);
     taxi->taxi_parent = taxi_parent;
-    taxi->location_index = taxi_parent->num_taxis;
     taxi_parent->taxi_near_locations = realloc(taxi_parent->taxi_near_locations,
                                                  sizeof(*taxi_parent->taxi_near_locations)
                                                  * (taxi_parent->num_taxis+1));
@@ -102,8 +108,14 @@ static struct taxi_location *find_taxi_by_id(struct taxi_location *taxi, int add
     {
         parent = *link;
         entry = rbtree_entry(parent, struct taxi_location, id_map);
-        int len = taxi->id_len > entry->id_len ? entry->id_len : taxi->id_len;
-        int cmp = memcmp(taxi->id, entry->id, len);
+        int cmp;
+        if(taxi->id_len < entry->id_len)
+            cmp = -1;
+        else if(taxi->id_len > entry->id_len)
+            cmp = 1;
+        else 
+            cmp = memcmp(taxi->id, entry->id, taxi->id_len);
+
         if(cmp < 0)
             link = &parent->left;
         else if(cmp > 0)
@@ -126,13 +138,11 @@ static int reparent_taxi(struct taxi_location *taxi, int add_back_parent)
 {
     struct taxi_location **children = taxi->taxi_near_locations;
     int num_childs = taxi->num_taxis;
-
     if(taxi->taxi_parent != taxi) return -1; /*not a parent entity*/
 
     taxi->taxi_parent = NULL;
     taxi->taxi_near_locations = NULL;
     taxi->num_taxis = 0;
-    taxi->location_index = 0;
     /* 
      * first unlink from the location map and add back
      */
@@ -147,11 +157,29 @@ static int reparent_taxi(struct taxi_location *taxi, int add_back_parent)
         if(children[i] == taxi) continue;
         assert(children[i]->taxi_parent == taxi);
         children[i]->taxi_parent = NULL;
-        children[i]->location_index = 0;
         children[i]->num_taxis = 0;
         __add_taxi_by_location(children[i]);
     }
     free(children);
+    return 0;
+}
+
+/*
+ * A child entry is getting deleted. Move up all the remaining entries as the list is sorted.
+ */
+static int unlink_child(struct taxi_location *parent, struct taxi_location *child)
+{
+    struct taxi_location **child_location = NULL;
+    child_location = (struct taxi_location**)
+        bsearch(&child, parent->taxi_near_locations, parent->num_taxis,
+                sizeof(*parent->taxi_near_locations), taxi_near_locations_cmp);
+    assert(child_location != NULL);
+    int index = child_location - parent->taxi_near_locations;
+    child = *child_location;
+    printf("Deleting child taxi [%.*s] found at index [%d]\n", child->id_len, child->id,  index);
+    --parent->num_taxis;
+    memmove(parent->taxi_near_locations + index, parent->taxi_near_locations+index+1,
+            sizeof(*parent->taxi_near_locations) * (parent->num_taxis - index));
     return 0;
 }
 
@@ -194,10 +222,7 @@ static int __add_taxi(struct taxi_location *taxi)
              * If the taxi has moved outside the radius of the parent,
              * then unlink and re-add
              */
-            parent->num_taxis--;
-            memmove(parent->taxi_near_locations + entry->location_index,
-                    parent->taxi_near_locations + entry->location_index+1,
-                    sizeof(*parent->taxi_near_locations) * (parent->num_taxis - entry->location_index));
+            unlink_child(parent, entry);
             entry->taxi_parent = NULL;
             /*
              * New latitude and longitude
@@ -207,7 +232,6 @@ static int __add_taxi(struct taxi_location *taxi)
             /*
              * Now add into the location map
              */
-            entry->location_index = 0;
             entry->num_taxis = 0;
             __add_taxi_by_location(entry);
             return -1;  /*match*/
@@ -246,12 +270,9 @@ static int __del_taxi(struct taxi_location *taxi)
     else
     {
         assert(parent->num_taxis > 1);
-        parent->num_taxis--;
-        memmove(parent->taxi_near_locations + entry->location_index,
-                parent->taxi_near_locations + entry->location_index + 1,
-                sizeof(*parent->taxi_near_locations) * (parent->num_taxis - entry->location_index));
+        unlink_child(parent, entry);
         entry->taxi_parent = NULL;
-        entry->location_index = 0;
+        entry->num_taxis = 0;
     }
     /*
      * Delete entry from the id map
