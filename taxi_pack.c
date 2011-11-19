@@ -80,7 +80,7 @@ static unsigned char *__taxis_pack(struct taxi *taxis, int num_taxis,
 
     if(r_buf)
         *r_buf = buf;
-    if(p_len) *p_len = s - buf; /* bytes packed */
+    if(p_len) *p_len = s - buf - offset; /* bytes packed */
     return buf;
 
 #undef _CHECK_SPACE
