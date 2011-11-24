@@ -32,22 +32,8 @@ static int send_taxi_list(struct taxi *taxi, struct taxi *taxis, int num_taxis, 
     int len = 1024, err = -1;
     unsigned char *buf = calloc(1, len);
     assert(buf);
-    unsigned char *s = buf;
-    int offset = sizeof(unsigned int) * 2;
-    *(unsigned int *)s = htonl(_TAXI_LIST_CMD);
-    s += sizeof(unsigned int);
-    *(unsigned int*)s = htonl(num_taxis);
-    unsigned char *taxis_marker = s;
-    s += sizeof(unsigned int);
-    int max_taxis =  __MAX_PACKET_LEN/(sizeof(struct taxi)  + _TAXI_OVERHEAD);
-    if(num_taxis > max_taxis) 
-    {
-        num_taxis = max_taxis;
-        *(unsigned int*)taxis_marker = htonl(num_taxis);
-    }
-    buf = taxis_pack_with_buf(taxis, num_taxis, &buf, &len, offset);
+    buf = taxi_list_pack_with_buf(taxis, num_taxis, &buf, &len, 0);
     assert(buf);
-    len += offset;
     int nbytes = sendto(sd, buf, len, 0, dest, addrlen);
     if(nbytes != len)
     {
@@ -57,7 +43,8 @@ static int send_taxi_list(struct taxi *taxi, struct taxi *taxis, int num_taxis, 
     err = 0;
 
     out_free:
-    free(buf);
+    if(buf)
+        free(buf);
     return err;
 }
 
@@ -98,6 +85,7 @@ static int process_request(int sd, unsigned char *buf, int bytes, struct sockadd
                 printf("Error unpacking taxi location data\n");
                 goto out;
             }
+            memcpy(&taxi.addr, dest, sizeof(taxi.addr));
             add_taxi(&taxi); /* add the taxi into the db*/
         }
         break;
@@ -112,6 +100,7 @@ static int process_request(int sd, unsigned char *buf, int bytes, struct sockadd
                 printf("Error unpacking taxi delete command\n");
                 goto out;
             }
+            memcpy(&taxi.addr, dest, sizeof(taxi.addr));
             printf("Deleting taxi with id [%.*s]\n", taxi.id_len, taxi.id);
             del_taxi(&taxi);
         }

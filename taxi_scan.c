@@ -15,6 +15,7 @@ struct taxi_location
     double longitude;
     unsigned char *id;
     int id_len;
+    struct sockaddr_in addr;
     struct taxi_location **taxi_near_locations;
     int num_taxis;
     struct taxi_location *taxi_parent;
@@ -300,6 +301,7 @@ int add_taxi(struct taxi *taxi)
     assert(taxi_location->id);
     taxi_location->id_len = taxi->id_len;
     memcpy(taxi_location->id, taxi->id, taxi->id_len);
+    memcpy(&taxi_location->addr, &taxi->addr, sizeof(taxi_location->addr));
     if((err = __add_taxi(taxi_location))< 0)
     {
         free(taxi_location->id);
@@ -452,6 +454,7 @@ int find_taxis_by_location(double latitude, double longitude,
         memcpy(result[i].id, taxis[i]->id, len);
         result[i].latitude = taxis[i]->latitude;
         result[i].longitude = taxis[i]->longitude;
+        memcpy(&result[i].addr, &taxis[i]->addr, sizeof(result[i].addr));
     }
     *matched_taxis = result;
     *num_matches = num_taxis;
