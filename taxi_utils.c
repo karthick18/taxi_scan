@@ -10,8 +10,10 @@
 static struct sockaddr *g_addresses;
 static int g_num_addresses;
 
-#ifdef __linux__
-
+#if 0
+/*
+ * Disabling it for portability. reasons
+ */
 uint64_t forward_clock(void)
 {
     struct timespec ts = {0};
