@@ -5,9 +5,12 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <time.h>
+#include <sys/time.h>
 
 static struct sockaddr *g_addresses;
 static int g_num_addresses;
+
+#ifdef __linux__
 
 uint64_t forward_clock(void)
 {
@@ -15,6 +18,17 @@ uint64_t forward_clock(void)
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec*1000000LL + (uint64_t)ts.tv_nsec/1000;
 }
+
+#else
+
+uint64_t forward_clock(void)
+{
+    struct timeval ts = {0};
+    gettimeofday(&ts, NULL);
+    return (uint64_t)ts.tv_sec * 1000000LL + ts.tv_usec;
+}
+
+#endif
 
 int get_if_addrs(struct sockaddr **p_addresses, int *p_num_addresses)
 {
