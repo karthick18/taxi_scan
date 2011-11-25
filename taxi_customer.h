@@ -27,10 +27,12 @@ extern int update_taxi_state_customer(unsigned char *taxi_id, int taxi_id_len,
                                       unsigned char *customer_id, int customer_id_len, int new_state);
 extern int del_customer(unsigned char *id, int id_len);
 
-extern int get_taxis_excluding_self_customer(unsigned char *id, int id_len, int hint,
+extern int get_taxis_excluding_self_customer(unsigned char *id, int id_len, short hint,
                                              struct taxi **p_taxis, int *p_num_taxis);
 
 extern int get_taxis_customer(unsigned char *id, int id_len, struct taxi **p_taxis, int *p_num_taxis);
+
+extern int get_taxis_matching_self_customer(unsigned char *id, int id_len, struct taxi *self);
 
 extern int set_taxi_id(unsigned char *id, int id_len);
 

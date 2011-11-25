@@ -340,6 +340,12 @@ int taxi_client_initialize(const char *ip, int port)
     printf("Local client address [%s], port [%d]\n", inet_ntoa(client_addr.sin_addr),
            ntohs(client_addr.sin_port));
     client_initialized = 1;
+
+    /*
+     * load the cache
+     */
+    get_if_addrs(NULL, NULL);
+    
     err = 0;
     goto out;
 

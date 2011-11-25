@@ -16,6 +16,7 @@ extern "C" {
 
 extern void get_server_addr(const char *ip, struct sockaddr_in *addr);
 extern int bind_server(const char *ip, int port);
+extern int get_if_addrs(struct sockaddr **addresses, int *p_num_addresses);
 
 #ifdef __cplusplus
 }

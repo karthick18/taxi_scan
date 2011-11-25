@@ -4,6 +4,7 @@
 #include <assert.h>
 #include "taxi_customer.h"
 #include "taxi_pack.h"
+#include "taxi_utils.h"
 
 #define __FIND_TAXI(id, len, list, field) do {                      \
     struct list_head *__iter ;                                      \
@@ -399,9 +400,10 @@ int set_taxi_id(unsigned char *taxi_id, int taxi_id_len)
     return -1;
 }
 
-int get_taxis_excluding_self_customer(unsigned char *id, int id_len,
-                                      int self_hint,
-                                      struct taxi **p_taxis, int *p_num_taxis)
+static int get_taxis_customer_filter(unsigned char *id, int id_len,
+                                     short port,
+                                     int filter,
+                                     struct taxi **p_taxis, int *p_num_taxis)
 {
     int err = -1;
     if(!id || !id_len || !p_taxis || !p_num_taxis) goto out;
@@ -411,15 +413,41 @@ int get_taxis_excluding_self_customer(unsigned char *id, int id_len,
     customer = __find_customer(id, id_len);
     if(!customer) goto out;
     struct list_head *iter;
+    struct sockaddr *addrs = NULL;
+    int num_addrs = 0;
+
     list_for_each(iter, &customer->taxi_list)
     {
         struct taxi_handle *handle = list_entry(iter, struct taxi_handle, taxi_list);
         struct taxi *target = handle->taxi;
         int cmp = -1;
+
+        if(!port)
+            goto do_copy;
+
         if(!g_taxi_id  || !g_taxi_id_len)
         {
-            if(!self_hint) cmp = -1;
-            else cmp = (int)target->addr.sin_port - self_hint;
+            if(!addrs)
+            {
+                get_if_addrs(&addrs, &num_addrs);
+            }
+            cmp = (int) (target->addr.sin_port - port);
+            if(cmp == 0)
+            {
+                /*
+                 * Slow path, compare addresses.
+                 */
+                cmp = -1;
+                for(int j = 0; j < num_addrs; ++j)
+                {
+                    struct sockaddr_in *my_addr = (struct sockaddr_in*)(addrs+j);
+                    if(my_addr->sin_addr.s_addr == target->addr.sin_addr.s_addr);
+                    {
+                        cmp = 0; /* matched self */
+                        break;
+                    }
+                }
+            }
         }
         else
         {
@@ -427,25 +455,55 @@ int get_taxis_excluding_self_customer(unsigned char *id, int id_len,
             if(!cmp)
                 cmp = memcmp(g_taxi_id, target->id, g_taxi_id_len);
         }
-        if(cmp)
+
+        if(cmp == filter)
         {
+            do_copy:
             taxis = realloc(taxis, sizeof(*taxis) * (num_taxis+1));
             assert(taxis);
             memcpy(taxis+num_taxis, target, sizeof(*target));
             ++num_taxis;
+            if(!filter) break;
         }
     }
     err = 0;
     *p_taxis = taxis;
     *p_num_taxis = num_taxis;
-
+    if(addrs) free(addrs);
+    
     out:
     return err;
+}
+
+int get_taxis_excluding_self_customer(unsigned char *id, int id_len, short hint,
+                                      struct taxi **p_taxis, int *p_num_taxis)
+{
+    return get_taxis_customer_filter(id, id_len, hint, -1, p_taxis, p_num_taxis);
 }
 
 int get_taxis_customer(unsigned char *id, int id_len, 
                        struct taxi **p_taxis, int *p_num_taxis)
 {
-    return get_taxis_excluding_self_customer(id, id_len, 0, p_taxis, p_num_taxis);
+    return get_taxis_customer_filter(id, id_len, 0, -1, p_taxis, p_num_taxis);
 }
 
+int get_taxi_matching_self_customer(unsigned char *id, int id_len, 
+                                    short hint, struct taxi *self)
+{
+    int err = -1;
+    if(!self) goto out;
+    struct taxi *taxis = NULL;
+    int num_taxis = 0;
+    err = get_taxis_customer_filter(id, id_len, hint, 0, &taxis, &num_taxis);
+    if(err < 0) goto out;
+    if(!num_taxis) 
+    {
+        err = -1;
+        goto out;
+    }
+    memcpy(self, taxis, sizeof(*self)); /* copy 1 taxi */
+    free(taxis);
+
+    out:
+    return err;
+}

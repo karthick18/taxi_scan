@@ -1,5 +1,5 @@
 CC := gcc
-LINK_FLAGS := -lpthread
+LINK_FLAGS := -lpthread -lrt
 DEBUG_FLAGS := -g
 CFLAGS := -Wall -g -D_GNU_SOURCE -std=c99
 SERVER_SRCS := rbtree.c taxi_scan.c taxi_server.c taxi_pack.c taxi_utils.c dispatcher.c
