@@ -169,7 +169,7 @@ static char *prog;
 static void usage(void)
 {
     fprintf(stderr, "%s [ -s | server ] [ -p | port ] [ -d | test deletion ] "
-            " [ -a | test add ] [ -i | test ping ] [ -f | test search ] [ -h | this help ]\n",
+            " [ -a | test add ] [ -i | test ping ] [ -f | test search ] [ -w | wait ] [ -h | this help ] location_file\n",
             prog);
     exit(1);
 }

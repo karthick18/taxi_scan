@@ -115,24 +115,38 @@ static struct taxi_customer *__find_customer(unsigned char *id, int id_len)
     return __find_customer_taxi(NULL, id, id_len, NULL);
 }
 
-static int __add_taxi(struct taxi *taxi, struct taxi *customer_taxi)
+static struct taxi *__update_taxi(struct taxi *taxi)
 {
     struct taxi *loc = __find_taxi_customer(NULL, taxi->id, taxi->id_len, NULL);
-    struct taxi_customer *customer = __find_customer(customer_taxi->id, customer_taxi->id_len);
     if(!loc)
     {
         loc = calloc(1, sizeof(*loc));
         assert(loc != NULL);
         memcpy(loc, taxi, sizeof(*loc));
-        loc->state = _TAXI_STATE_IDLE;
         LIST_HEAD_INIT(&loc->customer_list);
+        loc->state = _TAXI_STATE_IDLE;
         list_add_tail(&loc->list, &g_taxi_list);
         ++g_num_taxis;
     }
     else
     {
+        if(!taxi->state) 
+        {
+            taxi->state = _TAXI_STATE_IDLE;
+        }
         loc->state = taxi->state;
+        memcpy(&loc->addr, &taxi->addr, sizeof(loc->addr));
+        loc->latitude = taxi->latitude;
+        loc->longitude = taxi->longitude;
     }
+    return loc;
+}
+
+static int __add_taxi(struct taxi *taxi, struct taxi *customer_taxi)
+{
+    struct taxi *loc = __update_taxi(taxi);
+    struct taxi_customer *customer = __find_customer(customer_taxi->id, customer_taxi->id_len);
+    assert(loc != NULL);
     if(!customer)
     {
         customer = calloc(1, sizeof(*customer));
@@ -155,6 +169,7 @@ static int __add_taxi(struct taxi *taxi, struct taxi *customer_taxi)
     }
     else
     {
+        memcpy(&customer->taxi, customer_taxi, sizeof(customer->taxi));
         struct taxi_customer *customer_loc = 
             __find_customer_taxi(loc, customer_taxi->id, customer_taxi->id_len, NULL);
         if(!customer_loc)
@@ -301,6 +316,55 @@ int find_taxi_customer(unsigned char *taxi_id, int id_len,
     return err;
 }
 
+int find_taxi_by_hint(short port, struct taxi *res)
+{
+    int err = -1;
+    if(!port || !res) goto out;
+    struct sockaddr *addrs = NULL;
+    int num_addrs = 0;
+    get_if_addrs(&addrs, &num_addrs);
+    struct list_head *iter;
+    list_for_each(iter, &g_taxi_list)
+    {
+        struct taxi *taxi = list_entry(iter, struct taxi, list);
+        if(taxi->addr.sin_port != port) continue;
+        for(int i = 0; i < num_addrs; ++i)
+        {
+            struct sockaddr_in *ref_addr = (struct sockaddr_in*)&addrs[i];
+            if(taxi->addr.sin_addr.s_addr == ref_addr->sin_addr.s_addr)
+            {
+                err = 0;
+                memcpy(res, taxi, sizeof(*res));
+                goto out_free;
+            }
+        }
+    }
+
+    out_free:
+    if(addrs) free(addrs);
+    out:
+    return err;
+}
+
+int find_customer_taxi(unsigned char *taxi_id, int taxi_id_len,
+                       unsigned char *customer_id, int customer_id_len,
+                       struct taxi_customer *r_customer)
+{
+    int err = -1;
+    if(!taxi_id || !taxi_id_len) goto out;
+    if(!customer_id || !customer_id_len) goto out;
+    struct taxi_customer *customer = __find_customer(customer_id, customer_id_len);
+    if(!customer) goto out;
+    struct taxi *taxi = __find_taxi_customer(customer, taxi_id, taxi_id_len, NULL);
+    if(!taxi) goto out;
+    if(r_customer)
+        memcpy(r_customer, customer, sizeof(*r_customer));
+
+    err = 0;
+    out:
+    return err;
+}
+
 int update_taxi_state_customer(unsigned char *taxi_id, int taxi_id_len, 
                                unsigned char *customer_id, int customer_id_len, int new_state)
 {
@@ -333,6 +397,20 @@ int update_taxi_state_customer(unsigned char *taxi_id, int taxi_id_len,
     taxi->state = new_state;
     err = 0;
 
+    out:
+    return err;
+}
+
+int get_taxi_state(unsigned char *id, int id_len, int *r_state)
+{
+    struct taxi *taxi = NULL;
+    int err = -1;
+    if(!r_state) goto out;
+    taxi = __find_taxi_customer(NULL, id, id_len, NULL);
+    if(!taxi) goto out;
+
+    *r_state = taxi->state;
+    err = 0;
     out:
     return err;
 }
@@ -400,6 +478,9 @@ int set_taxi_id(unsigned char *taxi_id, int taxi_id_len)
     return -1;
 }
 
+/*
+ * Filter is 0 for match and -1 for no match based on the hint.
+ */
 static int get_taxis_customer_filter(unsigned char *id, int id_len,
                                      short port,
                                      int filter,
@@ -454,6 +535,7 @@ static int get_taxis_customer_filter(unsigned char *id, int id_len,
             cmp = g_taxi_id_len - target->id_len;
             if(!cmp)
                 cmp = memcmp(g_taxi_id, target->id, g_taxi_id_len);
+            if(cmp) cmp = -1;
         }
 
         if(cmp == filter)
@@ -506,4 +588,16 @@ int get_taxi_matching_self_customer(unsigned char *id, int id_len,
 
     out:
     return err;
+}
+
+int get_taxis_approaching_customer(unsigned char *id, int id_len)
+{
+    int num_approaching = 0;
+    struct taxi_customer *customer;
+    if(!id || !id_len) goto out;
+    customer = __find_customer(id, id_len);
+    if(!customer) goto out;
+    num_approaching = customer->num_approaching;
+    out:
+    return num_approaching;
 }

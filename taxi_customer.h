@@ -23,8 +23,17 @@ extern int del_taxi_customer(unsigned char *taxi_id, int taxi_id_len,
                              unsigned char *id, int id_len, struct taxi *result);
 extern int find_taxi_customer(unsigned char *taxi_id, int taxi_id_len,
                               unsigned char *id, int id_len, struct taxi *result);
+
+extern int find_taxi_by_hint(short port, struct taxi *result);
+
+extern int find_customer_taxi(unsigned char *taxi_id, int taxi_id_len,
+                              unsigned char *customer_id, int customer_id_len,
+                              struct taxi_customer *r_customer);
+
 extern int update_taxi_state_customer(unsigned char *taxi_id, int taxi_id_len,
                                       unsigned char *customer_id, int customer_id_len, int new_state);
+extern int get_taxi_state(unsigned char *id, int id_len, int *r_state);
+
 extern int del_customer(unsigned char *id, int id_len);
 
 extern int get_taxis_excluding_self_customer(unsigned char *id, int id_len, short hint,
@@ -32,11 +41,13 @@ extern int get_taxis_excluding_self_customer(unsigned char *id, int id_len, shor
 
 extern int get_taxis_customer(unsigned char *id, int id_len, struct taxi **p_taxis, int *p_num_taxis);
 
-extern int get_taxis_matching_self_customer(unsigned char *id, int id_len, struct taxi *self);
+extern int get_taxi_matching_self_customer(unsigned char *id, int id_len, short hint, struct taxi *self);
 
 extern int set_taxi_id(unsigned char *id, int id_len);
 
 extern int set_customer_id(unsigned char *id, int id_len);
+
+extern int get_taxis_approaching_customer(unsigned char *id, int id_len);
 
 #ifdef __cplusplus
 }

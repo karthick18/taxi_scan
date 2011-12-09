@@ -9,6 +9,75 @@
 
 static struct sockaddr_in client_addr;
 static socklen_t client_addrlen = sizeof(client_addr);
+static taxi_hook_t g_taxi_hook;
+
+static int send_taxi_ping_reply_cmd(struct taxi *customer, struct taxi *me, int sd)
+{
+    int err = -1;
+    int len = 1024;
+    unsigned char *buf = calloc(1, len);
+    assert(buf != NULL);
+    *(unsigned int*)buf = htonl(_TAXI_PING_REPLY_CMD);
+    buf = taxis_ping_pack_with_buf(customer, me, 1, &buf, &len, sizeof(unsigned int));
+    assert(buf != NULL);
+    len += sizeof(unsigned int);
+    /*
+     * Tell the customer that the taxi has accepted the request.
+     */
+    int bytes = sendto(sd, buf, len, 0, (struct sockaddr*)&customer->addr, sizeof(customer->addr));
+    if(bytes != len)
+    {
+        output("Taxi [%.*s] cannot contact customer [%.*s] at address [%s:%d] with ping ack\n",
+               me->id_len, me->id, 
+               customer->id_len, customer->id,
+               inet_ntoa(customer->addr.sin_addr), ntohs(customer->addr.sin_port));
+        goto out_free;
+    }
+    if(!(me->state & (_TAXI_STATE_ACTIVE | _TAXI_STATE_PICKUP)))
+    {
+        err = update_taxi_state_customer(me->id, me->id_len, customer->id, customer->id_len, _TAXI_STATE_ACTIVE);
+        if(err < 0)
+        {
+            output("Error activating state of taxi [%.*s] for customer [%.*s]\n", 
+                   me->id_len, me->id, customer->id_len, customer->id);
+            goto out_free;
+        }
+    }
+    /*
+     * Tell the remaining taxis for this customer about our pickup
+     */
+    struct taxi *not_mes = NULL;
+    int num_notmes = 0;
+    get_taxis_excluding_self_customer(customer->id, customer->id_len, client_addr.sin_port,
+                                      &not_mes, &num_notmes);
+    if(num_notmes > 0)
+    {
+        /*
+         * Send intimation to the selected peers.
+         */
+        *(unsigned int*)buf = htonl(_TAXI_PING_INTIMATION_CMD);
+        for(int i = 0; i < num_notmes; ++i)
+        {
+            if(sendto(sd, buf, len, 0, (struct sockaddr*)&not_mes[i].addr, sizeof(not_mes[i].addr)) != len)
+            {
+                output("Error sending ping intimation to peer taxi [%.*s]\n",
+                       not_mes[i].id_len, not_mes[i].id);
+            }
+            else 
+            {
+                printf("Sent ping intimation to peer taxi [%.*s] at [%s:%d]\n",
+                       not_mes[i].id_len, not_mes[i].id, 
+                       inet_ntoa(not_mes[i].addr.sin_addr), ntohs(not_mes[i].addr.sin_port));
+            }
+        }
+        free(not_mes);
+    }
+    err = 0;
+
+    out_free:
+    free(buf);
+    return err;
+}    
 
 static int send_taxis_ping_cmd(struct taxi *customer, struct taxi *taxis, int num_taxis, int sd)
 {
@@ -244,6 +313,93 @@ int ping_nearby_taxis(struct taxi *customer, struct taxi *taxis, int num_taxis)
     return err;
 }
 
+static int process_taxi_ping_request(struct taxi *customer, struct taxi *taxis, int num_taxis)
+{
+    int err = 0;
+    if(err) goto out;
+    struct taxi self, *p_self = NULL;
+    err = find_taxi_by_hint(client_addr.sin_port, &self);
+    if(err == 0)
+    {
+        p_self = &self;
+        if(self.state & (_TAXI_STATE_ACTIVE | _TAXI_STATE_PICKUP))
+        {
+            /*
+             * Check if this customer is part of the taxi list.
+             */
+            if(find_customer_taxi(self.id, self.id_len, customer->id, customer->id_len, NULL))
+            {
+                output("Ignoring customer request as taxi [%.*s] is already active serving another customer\n",
+                       self.id_len, self.id);
+                goto out;
+            }
+        }
+    }
+    err = add_taxis_customer(customer, taxis, num_taxis);
+    if(err) goto out;
+
+    if(!p_self)
+    {
+        err = get_taxi_matching_self_customer(customer->id, customer->id_len, 
+                                              client_addr.sin_port, &self);
+        if(err)
+        {
+            printf("No taxi matching self for customer [%.*s]\n", customer->id_len, customer->id);
+            goto out;
+        }
+
+        printf("Our taxi id [%.*s], port [%d]\n", self.id_len, self.id, ntohs(client_addr.sin_port));
+
+        /*
+         * Now find the number of taxis approaching the customer.
+         */
+        int num_approaching = get_taxis_approaching_customer(customer->id, customer->id_len);
+        if(num_approaching >= 2)
+        {
+            printf("Already [%d] approaching the customer [%.*s]. Backing out\n", num_approaching,
+                   customer->id_len, customer->id);
+            goto out;
+        }
+    }
+
+    /*
+     * If there are hooks registered, invoke them for the cmd.
+     * These hooks could update the location information for the taxi from the mobile interface.
+     */
+    if(g_taxi_hook) 
+    {
+        g_taxi_hook(_TAXI_PING_CMD, customer, &self, 1);
+    }
+    err = send_taxi_ping_reply_cmd(customer, &self, client_fd);
+
+    out:
+    return err;
+}
+
+static int process_taxi_ping_reply_request(int cmd, struct taxi *customer, struct taxi *peer)
+{
+    int err;
+    err = add_taxis_customer(customer, peer, 1);
+    if(err < 0)
+    {
+        output("Unable to add peer taxi [%.*s] to taxi map for customer [%.*s]\n",
+               peer->id_len, peer->id, customer->id_len, customer->id);
+        goto out;
+    }
+
+    err = update_taxi_state_customer(peer->id, peer->id_len, 
+                                     customer->id, customer->id_len, peer->state);
+
+    if(g_taxi_hook)
+    {
+        g_taxi_hook(cmd, customer, peer, 1);
+    }
+
+    out:
+    return err;
+}
+
+
 static int taxi_client_dispatcher(int fd, void *arg)
 {
 #define _CHECK_SPACE(sp) do { len -= (sp); if(len < 0) goto out; } while(0)
@@ -281,17 +437,45 @@ static int taxi_client_dispatcher(int fd, void *arg)
             err = taxis_ping_unpack(s, &len, &customer, &taxis, &num_taxis);
             if(err < 0)
             {
-                fprintf(stderr, "Taxi ping command unpack failed\n");
+                output("Taxi ping command unpack failed\n");
                 goto out;
             }
-            printf("Got ping command from customer [%.*s] at [%lg:%lg] for [%d] taxis\n",
+            /*
+             * Copy the customer address.
+             */
+            memcpy(&customer.addr, &dest, sizeof(customer.addr));
+            printf("Got ping command from customer [%.*s] at [%lg:%lg] for [%d] taxis at [%s]\n",
                    customer.id_len, customer.id, customer.latitude, customer.longitude,
-                   num_taxis);
+                   num_taxis, inet_ntoa(dest.sin_addr));
             for(int i = 0; i < num_taxis; ++i)
             {
                 printf("Ping command with taxi [%.*s] traced at location [%lg:%lg]\n",
                        taxis[i].id_len, taxis[i].id, taxis[i].latitude, taxis[i].longitude);
             }
+            /*
+             * Add the list to the customer list.
+             */
+            process_taxi_ping_request(&customer, taxis, num_taxis);
+            free(taxis);
+        }
+        break;
+    case _TAXI_PING_INTIMATION_CMD:
+    case _TAXI_PING_REPLY_CMD:
+        {
+            struct taxi *taxis = NULL;
+            int num_taxis = 0;
+            struct taxi customer = {0};
+            err = taxis_ping_unpack(s, &len, &customer, &taxis, &num_taxis);
+            if(err < 0)
+            {
+                output("Taxi ping intimation cmd unpack failed\n");
+                goto out;
+            }
+            assert(num_taxis == 1);
+            printf("Got ping [%s] from peer taxi [%.*s] for customer [%.*s]\n",
+                   cmd == _TAXI_PING_REPLY_CMD ? "reply" : "intimation",
+                   taxis->id_len, taxis->id, customer.id_len, customer.id);
+            process_taxi_ping_reply_request(cmd, &customer, taxis);
             free(taxis);
         }
         break;
@@ -359,3 +543,17 @@ int taxi_client_initialize(const char *ip, int port)
     return err;
 }
  
+int taxi_client_register_hook(taxi_hook_t hook)
+{
+    int err = -1;
+
+    if(!hook) goto out;
+    if(!g_taxi_hook) 
+    {
+        err = 0;
+        g_taxi_hook = hook;
+    }
+
+    out:
+    return err;
+}

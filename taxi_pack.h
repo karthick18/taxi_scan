@@ -16,6 +16,8 @@ extern "C" {
 #define _TAXI_FETCH_CMD    __TAXI_CMD(3)
 #define _TAXI_LIST_CMD     __TAXI_CMD(4)
 #define _TAXI_PING_CMD     __TAXI_CMD(5)
+#define _TAXI_PING_REPLY_CMD __TAXI_CMD(6)
+#define _TAXI_PING_INTIMATION_CMD __TAXI_CMD(7)
 
 extern unsigned char *taxis_pack(struct taxi *taxis, int num_taxis);
 extern unsigned char *taxi_pack(struct taxi *taxi);
